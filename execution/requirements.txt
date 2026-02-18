@@ -1,0 +1,15 @@
+# Core dependencies for execution scripts
+python-dotenv>=1.0.0
+
+# Web Scraping
+selenium>=4.15.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# Google Sheets API
+google-api-python-client>=2.0.0
+google-auth-httplib2>=0.1.0
+google-auth-oauthlib>=1.0.0
+
+# Add your project-specific dependencies below:
+# pandas>=2.0.0

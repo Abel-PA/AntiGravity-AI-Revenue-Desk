@@ -1,0 +1,128 @@
+{
+    "name": "AI Revenue Desk - Sheets Edition",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "retell-webhook",
+                "options": {}
+            },
+            "name": "Retell Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                250,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "append",
+                "documentId": "={{$env[\"GOOGLE_SHEETS_ID\"]}}",
+                "sheetName": "AI Lead Log",
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "Timestamp": "={{$now}}",
+                        "Call ID": "={{$node[\"Retell Webhook\"].json[\"call_id\"]}}",
+                        "Name": "={{$node[\"Retell Webhook\"].json[\"analysis\"][\"customer_name\"]}}",
+                        "Phone": "={{$node[\"Retell Webhook\"].json[\"from_number\"]}}",
+                        "Address": "={{$node[\"Retell Webhook\"].json[\"analysis\"][\"address\"]}}",
+                        "Issue": "={{$node[\"Retell Webhook\"].json[\"analysis\"][\"issue_type\"]}}",
+                        "Status": "={{$node[\"Retell Webhook\"].json[\"analysis\"][\"booked\"] ? 'Booked' : 'Qualified Lead'}}",
+                        "Est Revenue": "={{$node[\"Retell Webhook\"].json[\"analysis\"][\"booked\"] ? 150 : 0}}"
+                    }
+                },
+                "options": {}
+            },
+            "name": "Log to Google Sheets",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 2,
+            "position": [
+                500,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "boolean": [
+                        {
+                            "value1": "={{$node[\"Retell Webhook\"].json[\"analysis\"][\"booked\"]}}",
+                            "value2": true
+                        }
+                    ]
+                }
+            },
+            "name": "Is Booked?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [
+                700,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://api.twilio.com/2010-04-01/Accounts/{{TWILIO_SID}}/Messages.json",
+                "authentication": "basicAuth",
+                "bodyParametersUi": {
+                    "parameter": [
+                        {
+                            "name": "To",
+                            "value": "={{$node[\"Retell Webhook\"].json[\"from_number\"]}}"
+                        },
+                        {
+                            "name": "Body",
+                            "value": "Confirmation: Your appointment is booked! We'll see you at {{$node[\"Retell Webhook\"].json[\"analysis\"][\"appointment_time\"]}}."
+                        }
+                    ]
+                }
+            },
+            "name": "Send SMS Confirmation",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [
+                900,
+                200
+            ]
+        }
+    ],
+    "connections": {
+        "Retell Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Log to Google Sheets",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Log to Google Sheets": {
+            "main": [
+                [
+                    {
+                        "node": "Is Booked?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Is Booked?": {
+            "main": [
+                [
+                    {
+                        "node": "Send SMS Confirmation",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                []
+            ]
+        }
+    }
+}

@@ -1,0 +1,126 @@
+{
+    "name": "AI Revenue Desk - Inbound Call Flow",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "retell-webhook",
+                "options": {}
+            },
+            "name": "Retell Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                250,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "boolean": [
+                        {
+                            "value1": "={{$node[\"Retell Webhook\"].json[\"analysis\"][\"booked\"]}}",
+                            "value2": true
+                        }
+                    ]
+                }
+            },
+            "name": "Is Booked?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [
+                450,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://api.servicetitan.io/v2/tenants/{{TENANT_ID}}/jobs",
+                "authentication": "oAuth2",
+                "bodyParametersUi": {
+                    "parameter": [
+                        {
+                            "name": "customerId",
+                            "value": "={{$node[\"Retell Webhook\"].json[\"customer_id\"]}}"
+                        },
+                        {
+                            "name": "summary",
+                            "value": "={{$node[\"Retell Webhook\"].json[\"transcript\"]}}"
+                        }
+                    ]
+                }
+            },
+            "name": "Create CRM Job",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [
+                650,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://api.twilio.com/2010-04-01/Accounts/{{TWILIO_SID}}/Messages.json",
+                "authentication": "basicAuth",
+                "bodyParametersUi": {
+                    "parameter": [
+                        {
+                            "name": "To",
+                            "value": "={{$node[\"Retell Webhook\"].json[\"from_number\"]}}"
+                        },
+                        {
+                            "name": "Body",
+                            "value": "Confirmation: Your appointment is booked for {{$node[\"Retell Webhook\"].json[\"analysis\"][\"appointment_time\"]}}."
+                        }
+                    ]
+                }
+            },
+            "name": "Send SMS Confirmation",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [
+                850,
+                200
+            ]
+        }
+    ],
+    "connections": {
+        "Retell Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Is Booked?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Is Booked?": {
+            "main": [
+                [
+                    {
+                        "node": "Create CRM Job",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                []
+            ]
+        },
+        "Create CRM Job": {
+            "main": [
+                [
+                    {
+                        "node": "Send SMS Confirmation",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}
