@@ -19,21 +19,19 @@ class RevenueReporter:
         self.retainer_fee = 2000 # Default Tier 1 Retainer
 
     def _authenticate(self):
+        # 1. Try Environment Variable (For Railway/Cloud)
+        env_creds = os.getenv("GOOGLE_CREDS_JSON")
+        if env_creds:
+            print("🔐 Using credentials from GOOGLE_CREDS_JSON environment variable...")
+            cred_data = json.loads(env_creds)
+            return service_account.Credentials.from_service_account_info(cred_data, scopes=SCOPES)
+
+        # 2. Fallback to Local Files
         cred_file = 'Credentials.json' if os.path.exists('Credentials.json') else 'credentials.json'
         if not os.path.exists(cred_file):
             if os.path.exists('token.json'):
                 return UserCredentials.from_authorized_user_file('token.json', SCOPES)
             raise FileNotFoundError("Credentials.json not found.")
-
-        with open(cred_file, 'r') as f:
-            cred_data = json.load(f)
-        
-        if cred_data.get('type') == 'service_account':
-            return service_account.Credentials.from_service_account_file(cred_file, scopes=SCOPES)
-        else:
-            if os.path.exists('token.json'):
-                return UserCredentials.from_authorized_user_file('token.json', SCOPES)
-            raise Exception("token.json not found for user auth.")
 
     def run_weekly_report(self):
         """
