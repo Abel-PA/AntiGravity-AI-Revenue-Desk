@@ -17,20 +17,35 @@ logger = RevenueDeskLogger()
 def process_call_data(call_payload):
     """
     Processes post-call data from Retell AI.
-    Handles different payload structures from Retell V1/V2.
+    Bulletproof extraction across nested or flat Retell payloads.
     """
-    call_id = call_payload.get("call_id") or call_payload.get("call_id")
+    # 0. Try to find the root 'call' object if Retell nested it
+    call_obj = call_payload.get("call") if isinstance(call_payload.get("call"), dict) else call_payload
+    
+    call_id = call_obj.get("call_id") or call_payload.get("call_id")
     print(f"--- Processing Call: {call_id} ---")
     
     # 1. Extract Structured Data 
-    # Retell can put data in 'analysis', 'call_analysis', or 'custom_variables'
-    analysis = call_payload.get("analysis") or call_payload.get("call_analysis") or {}
-    custom_vars = call_payload.get("custom_variables") or {}
+    # Try multiple nested locations for analysis
+    analysis = (
+        call_obj.get("analysis") or 
+        call_obj.get("call_analysis") or 
+        call_payload.get("analysis") or 
+        call_payload.get("call_analysis") or 
+        {}
+    )
     
-    # Merge custom variables into analysis if they exist
+    # Also look for data inside a 'transcript_with_summary' or similar if it's there
+    custom_vars = (
+        call_obj.get("custom_variables") or 
+        call_payload.get("custom_variables") or 
+        {}
+    )
+    
+    # Merge custom variables into analysis (Higher priority)
     analysis.update(custom_vars)
     
-    customer_number = call_payload.get("from_number") or call_payload.get("customer_number")
+    customer_number = call_obj.get("from_number") or call_obj.get("customer_number") or call_payload.get("from_number")
     
     # 2. Extract Intent/Booking info (handling case-sensitivity or underscores)
     is_booked = analysis.get("booked") or analysis.get("is_booked") or False
@@ -38,13 +53,13 @@ def process_call_data(call_payload):
     appointment_time = analysis.get("appointment_time") or analysis.get("booking_time")
     
     # 3. Handle Name and Address
-    customer_name = analysis.get("customer_name") or analysis.get("name") or "Unknown"
-    raw_address = analysis.get("address") or analysis.get("service_address") or ""
+    customer_name = analysis.get("customer_name") or analysis.get("name") or analysis.get("customer") or "Unknown"
+    raw_address = analysis.get("address") or analysis.get("service_address") or analysis.get("location") or ""
     
     # 4. Address Validation
     validated_addr, is_valid, _ = validate_address(raw_address)
     
-    if not is_valid:
+    if not is_valid and raw_address:
         print(f"⚠️ Warning: Address '{raw_address}' could not be precisely verified.")
 
     # 5. Prepare Lead Data for Sheets
@@ -52,29 +67,31 @@ def process_call_data(call_payload):
         "call_id": call_id,
         "name": customer_name,
         "phone": customer_number,
-        "address": validated_addr,
+        "address": validated_addr if is_valid else raw_address,
         "issue": issue_type,
-        "status": "Booked" if is_booked else ("Invalid Address" if not is_valid else "Qualified Lead"),
+        "status": "Booked" if is_booked else ("Missed Data" if not raw_address else "Qualified Lead"),
         "est_revenue": 150 if is_booked else 0 
     }
     
-    # 4. Log to Google Sheets (The "CRM" replacement)
+    # 6. Log to Google Sheets (Bulletproof Init)
     try:
+        # Initializing inside the function ensures a fresh, thread-safe session for this request
+        logger = RevenueDeskLogger()
         logger.log_call(lead_data)
         
-        # 5. Send Slack Notification for Successful Booking
-        status_emoji = "✅" if is_booked else "📞"
-        alert_msg = f"{status_emoji} *New AI Interaction:* {lead_data['name']}\n*Status:* {lead_data['status']}\n*Issue:* {lead_data['issue']}\n*Address:* {lead_data['address']}"
+        # 7. Send Slack Notification
+        status_emoji = "✅" if is_booked else ("📞" if raw_address else "⚠️")
+        alert_msg = f"{status_emoji} *New AI Interaction:* {lead_data['name']}\n*Status:* {lead_data['status']}\n*Issue:* {lead_data['issue']}\n*Address:* {lead_data['address']}\n*Call ID:* {call_id}"
         send_slack_notification(alert_msg)
 
     except Exception as e:
-        print(f"❌ Error logging to Sheets: {e}")
+        print(f"❌ Error in Post-Call Workflow: {e}")
     
-    # 5. SMS Confirmation (Twilio)
+    # 8. SMS Confirmation (Twilio)
     if is_booked and appointment_time:
         send_sms_confirmation(customer_number, appointment_time)
         
-    # 6. Forward to n8n for additional orchestration
+    # 9. Forward to n8n for additional orchestration
     if N8N_URL:
         try:
             requests.post(N8N_URL, json=lead_data)
