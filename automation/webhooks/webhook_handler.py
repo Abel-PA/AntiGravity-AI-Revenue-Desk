@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from automation.webhooks.google_sheets_logger import RevenueDeskLogger
-from automation.utils import validate_address
+from automation.utils import validate_address, send_slack_notification
 
 # Configuration
 N8N_URL = os.getenv("N8N_WEBHOOK_URL")
