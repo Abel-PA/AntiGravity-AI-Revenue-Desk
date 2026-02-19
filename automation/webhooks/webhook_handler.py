@@ -35,6 +35,10 @@ def process_call_data(call_payload):
         {}
     )
     
+    # Debug: Print the keys found in analysis to help mapping
+    if analysis:
+        print(f"DEBUG: Found analysis keys: {list(analysis.keys())}")
+    
     # Also look for data inside a 'transcript_with_summary' or similar if it's there
     custom_vars = (
         call_obj.get("custom_variables") or 
@@ -47,14 +51,17 @@ def process_call_data(call_payload):
     
     customer_number = call_obj.get("from_number") or call_obj.get("customer_number") or call_payload.get("from_number")
     
-    # 2. Extract Intent/Booking info (handling case-sensitivity or underscores)
-    is_booked = analysis.get("booked") or analysis.get("is_booked") or False
-    issue_type = analysis.get("issue_type") or analysis.get("issue") or "unknown"
-    appointment_time = analysis.get("appointment_time") or analysis.get("booking_time")
+    # 2. Extract Intent/Booking info
+    # Handle "Yes/No" strings or boolean
+    booked_raw = analysis.get("booked") or analysis.get("is_booked") or analysis.get("appointment_booked")
+    is_booked = True if str(booked_raw).lower() in ["true", "yes", "booked"] else False
+    
+    issue_type = analysis.get("issue_type") or analysis.get("issue") or analysis.get("service") or "unknown"
+    appointment_time = analysis.get("appointment_time") or analysis.get("booking_time") or analysis.get("time")
     
     # 3. Handle Name and Address
-    customer_name = analysis.get("customer_name") or analysis.get("name") or analysis.get("customer") or "Unknown"
-    raw_address = analysis.get("address") or analysis.get("service_address") or analysis.get("location") or ""
+    customer_name = analysis.get("customer_name") or analysis.get("name") or analysis.get("customer") or analysis.get("full_name") or "Unknown"
+    raw_address = analysis.get("address") or analysis.get("service_address") or analysis.get("location") or analysis.get("street_address") or ""
     
     # 4. Address Validation
     validated_addr, is_valid, _ = validate_address(raw_address)

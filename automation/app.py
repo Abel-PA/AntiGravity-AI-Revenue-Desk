@@ -28,13 +28,21 @@ async def root():
 async def retell_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Receives post-call data from Retell AI.
+    Filter for 'call_analyzed' to prevent duplicate Slack/Sheets events.
     """
     payload = await request.json()
-    print("DEBUG: Full Payload from Retell:")
-    print(json.dumps(payload, indent=2))
+    event_type = payload.get("event")
     
-    background_tasks.add_task(process_call_data, payload)
-    return {"message": "Voice data received and processing"}
+    print(f"DEBUG: Received Retell Webhook - Event: {event_type}")
+    
+    # Only process when the call is analyzed (has the variables we need)
+    if event_type == "call_analyzed":
+        print("DEBUG: Processing Analyze Event...")
+        background_tasks.add_task(process_call_data, payload)
+    else:
+        print(f"DEBUG: Skipping event type: {event_type}")
+
+    return {"message": "Webhook received"}
 
 @app.post("/webhooks/missed-call")
 async def missed_call_webhook(request: Request, background_tasks: BackgroundTasks):
