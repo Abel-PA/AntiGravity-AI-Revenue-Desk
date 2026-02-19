@@ -17,30 +17,40 @@ logger = RevenueDeskLogger()
 def process_call_data(call_payload):
     """
     Processes post-call data from Retell AI.
-    Extracts summary, intent, and customer details.
+    Handles different payload structures from Retell V1/V2.
     """
-    print(f"--- Processing Call: {call_payload.get('call_id')} ---")
+    call_id = call_payload.get("call_id") or call_payload.get("call_id")
+    print(f"--- Processing Call: {call_id} ---")
     
-    # 1. Extract Structured Data from Retell Webhook
-    analysis = call_payload.get("analysis", {})
-    customer_number = call_payload.get("from_number")
+    # 1. Extract Structured Data 
+    # Retell can put data in 'analysis', 'call_analysis', or 'custom_variables'
+    analysis = call_payload.get("analysis") or call_payload.get("call_analysis") or {}
+    custom_vars = call_payload.get("custom_variables") or {}
     
-    # 2. Extract Intent/Booking info
-    is_booked = analysis.get("booked", False)
-    issue_type = analysis.get("issue_type", "unknown")
-    appointment_time = analysis.get("appointment_time", None)
+    # Merge custom variables into analysis if they exist
+    analysis.update(custom_vars)
     
-    # 3. Address Validation
-    raw_address = analysis.get("address", "")
+    customer_number = call_payload.get("from_number") or call_payload.get("customer_number")
+    
+    # 2. Extract Intent/Booking info (handling case-sensitivity or underscores)
+    is_booked = analysis.get("booked") or analysis.get("is_booked") or False
+    issue_type = analysis.get("issue_type") or analysis.get("issue") or "unknown"
+    appointment_time = analysis.get("appointment_time") or analysis.get("booking_time")
+    
+    # 3. Handle Name and Address
+    customer_name = analysis.get("customer_name") or analysis.get("name") or "Unknown"
+    raw_address = analysis.get("address") or analysis.get("service_address") or ""
+    
+    # 4. Address Validation
     validated_addr, is_valid, _ = validate_address(raw_address)
     
     if not is_valid:
         print(f"⚠️ Warning: Address '{raw_address}' could not be precisely verified.")
 
-    # 4. Prepare Lead Data for Sheets
+    # 5. Prepare Lead Data for Sheets
     lead_data = {
-        "call_id": call_payload.get("call_id"),
-        "name": analysis.get("customer_name", "Unknown"),
+        "call_id": call_id,
+        "name": customer_name,
         "phone": customer_number,
         "address": validated_addr,
         "issue": issue_type,
