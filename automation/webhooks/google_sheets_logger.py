@@ -14,7 +14,8 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 class RevenueDeskLogger:
     def __init__(self):
         self.creds = self._authenticate()
-        self.service = build('sheets', 'v4', credentials=self.creds)
+        # discovery_service_local=True avoids the background network call that causes SegFaults in some environments
+        self.service = build('sheets', 'v4', credentials=self.creds, static_discovery=True)
         self.spreadsheet_id = os.getenv('GOOGLE_SHEETS_ID')
 
     def _authenticate(self):

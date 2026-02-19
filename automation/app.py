@@ -28,9 +28,11 @@ async def root():
 async def retell_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Receives post-call data from Retell AI.
-    Syncs to Google Sheets and sends SMS confirmation.
     """
     payload = await request.json()
+    print("DEBUG: Full Payload from Retell:")
+    print(json.dumps(payload, indent=2))
+    
     background_tasks.add_task(process_call_data, payload)
     return {"message": "Voice data received and processing"}
 
