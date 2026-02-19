@@ -49,7 +49,16 @@ def process_call_data(call_payload):
     }
     
     # 4. Log to Google Sheets (The "CRM" replacement)
-    logger.log_call(lead_data)
+    try:
+        logger.log_call(lead_data)
+        
+        # 5. Send Slack Notification for Successful Booking
+        status_emoji = "✅" if is_booked else "📞"
+        alert_msg = f"{status_emoji} *New AI Interaction:* {lead_data['name']}\n*Status:* {lead_data['status']}\n*Issue:* {lead_data['issue']}\n*Address:* {lead_data['address']}"
+        send_slack_notification(alert_msg)
+
+    except Exception as e:
+        print(f"❌ Error logging to Sheets: {e}")
     
     # 5. SMS Confirmation (Twilio)
     if is_booked and appointment_time:
