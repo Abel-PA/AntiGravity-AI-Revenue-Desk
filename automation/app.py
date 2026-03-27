@@ -89,7 +89,7 @@ async def sms_agent_webhook(request: Request):
 @app.post("/voice/incoming")
 async def voice_incoming(request: Request):
     """
-    Rings the real phone for 10 seconds.
+    Rings the real phone for 6 seconds.
     If no answer, Twilio hits /voice/dial-result with status.
     """
     from fastapi.responses import Response
@@ -104,7 +104,7 @@ async def voice_incoming(request: Request):
     
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial timeout="10" answerOnBridge="true" action="{action_url}" method="POST">
+  <Dial timeout="6" answerOnBridge="true" action="{action_url}" method="POST">
     <Number>{real_phone}</Number>
   </Dial>
 </Response>"""
