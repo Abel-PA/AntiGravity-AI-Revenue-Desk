@@ -85,6 +85,62 @@ async def sms_agent_webhook(request: Request):
 
     return {"status": "success"}
 
+
+@app.post("/voice/incoming")
+async def voice_incoming(request: Request):
+    """
+    Rings the real phone for 10 seconds.
+    If no answer, Twilio hits /voice/dial-result with status.
+    """
+    from fastapi.responses import Response
+    
+    # Construct base URL dynamically for Railway
+    base_url = str(request.base_url).rstrip("/")
+    if "up.railway.app" in base_url and base_url.startswith("http://"):
+        base_url = base_url.replace("http://", "https://")
+        
+    action_url = f"{base_url}/voice/dial-result"
+    real_phone = os.getenv("REAL_MOBILE_NUMBER", "+17176780349")
+    
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial timeout="10" answerOnBridge="true" action="{action_url}" method="POST">
+    <Number>{real_phone}</Number>
+  </Dial>
+</Response>"""
+    return Response(content=twiml, media_type="text/xml")
+
+@app.post("/voice/dial-result")
+async def voice_dial_result(request: Request):
+    """
+    Checks the status of the dial attempt. If not answered, connect to AI agent.
+    """
+    from fastapi.responses import Response
+    
+    form_data = await request.form()
+    status = form_data.get("DialCallStatus", "failed")
+    
+    # Send empty response if answered
+    if status == 'answered':
+        return Response(content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>', media_type="text/xml")
+        
+    # Trigger Retell AI Agent Fallback on missed calls
+    if status in ['no-answer', 'busy', 'failed', 'canceled']:
+        agent_id = os.getenv("RETELL_AGENT_ID")
+        
+        # We redirect straight to Retell's inbound Twilio handler
+        # Retell's API uses this format for Twilio integration fallback
+        ai_webhook_url = os.getenv("AI_AGENT_INBOUND_URL", f"https://api.retellai.com/twilio/inbound/{agent_id}")
+        
+        twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Redirect method="POST">{ai_webhook_url}</Redirect>
+</Response>"""
+        return Response(content=twiml, media_type="text/xml")
+
+    # Catch-all
+    return Response(content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>', media_type="text/xml")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
