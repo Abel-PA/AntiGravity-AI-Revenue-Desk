@@ -124,17 +124,21 @@ async def voice_dial_result(request: Request):
     if status == 'answered':
         return Response(content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>', media_type="text/xml")
         
-    # Trigger Retell AI Agent Fallback on missed calls
+    # Trigger Retell AI Agent Fallback via their SIP Trunk
     if status in ['no-answer', 'busy', 'failed', 'canceled']:
-        agent_id = os.getenv("RETELL_AGENT_ID")
-        
-        # We redirect straight to Retell's inbound Twilio handler
-        # Retell's API uses this format for Twilio integration fallback
-        ai_webhook_url = os.getenv("AI_AGENT_INBOUND_URL", f"https://api.retellai.com/twilio/inbound/{agent_id}")
+        # Extract the original Twilio number that the customer called
+        to_number = form_data.get("To", "").replace("+", "")
+        if not to_number:
+             to_number = "unknown"
+             
+        # Create the Retell SIP routing URI dynamically using the number Retell knows about
+        ai_sip_uri = os.getenv("AI_AGENT_INBOUND_URL", f"sip:{to_number}@sip.retellai.com;transport=tcp")
         
         twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Redirect method="POST">{ai_webhook_url}</Redirect>
+  <Dial>
+    <Sip>{ai_sip_uri}</Sip>
+  </Dial>
 </Response>"""
         return Response(content=twiml, media_type="text/xml")
 
