@@ -8,6 +8,7 @@ Docs: https://highlevel.stoplight.io/docs/integrations
 
 import os
 import requests
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -38,7 +39,7 @@ def _is_configured():
 # Contact Management
 # ─────────────────────────────────────────────
 
-def find_contact_by_phone(phone: str) -> str | None:
+def find_contact_by_phone(phone: str) -> Optional[str]:
     """Returns the contactId if a contact with this phone already exists, else None."""
     if not _is_configured() or not phone:
         return None
@@ -58,7 +59,7 @@ def find_contact_by_phone(phone: str) -> str | None:
     return None
 
 
-def upsert_contact(lead_data: dict) -> str | None:
+def upsert_contact(lead_data: dict) -> Optional[str]:
     """
     Creates a new contact or updates an existing one (matched by phone).
     Returns the contactId or None on failure.
