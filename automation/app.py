@@ -35,8 +35,12 @@ async def retell_webhook(request: Request, background_tasks: BackgroundTasks):
     
     print(f"DEBUG: Received Retell Webhook - Event: {event_type}")
     
-    # Only process when the call is analyzed (has the variables we need)
-    if event_type == "call_analyzed":
+    if event_type == "call_started":
+        call = payload.get("call", {})
+        caller = call.get("from_number") or call.get("customer_number") or "Unknown number"
+        send_slack_notification(f"📞 *Call Started* — AI agent is speaking to {caller} right now.")
+
+    elif event_type == "call_analyzed":
         print("DEBUG: Processing Analyze Event...")
         background_tasks.add_task(process_call_data, payload)
     else:
