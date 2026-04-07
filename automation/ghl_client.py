@@ -19,6 +19,10 @@ GHL_PIPELINE_ID = os.getenv("GHL_PIPELINE_ID")                         # Optiona
 GHL_STAGE_NEW_LEAD = os.getenv("GHL_PIPELINE_STAGE_NEW_LEAD")          # Optional
 GHL_STAGE_HOT_LEAD = os.getenv("GHL_PIPELINE_STAGE_HOT_LEAD")          # Optional
 
+TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_FROM = os.getenv("TWILIO_PHONE_NUMBER")
+
 BASE_URL = "https://services.leadconnectorhq.com"
 
 HEADERS = {
@@ -39,15 +43,15 @@ def _is_configured():
 # Contact Management
 # ─────────────────────────────────────────────
 
-def find_contact_by_phone(phone: str) -> Optional[str]:
-    """Returns the contactId if a contact with this phone already exists, else None."""
-    if not _is_configured() or not phone:
+def _find_contact_by_query(query: str) -> Optional[str]:
+    """Searches GHL contacts by any query string (phone or email). Returns contactId or None."""
+    if not _is_configured() or not query:
         return None
     try:
         resp = requests.get(
             f"{BASE_URL}/contacts/",
             headers=HEADERS,
-            params={"locationId": GHL_LOCATION_ID, "query": phone},
+            params={"locationId": GHL_LOCATION_ID, "query": query},
             timeout=10,
         )
         if resp.status_code == 200:
@@ -61,14 +65,24 @@ def find_contact_by_phone(phone: str) -> Optional[str]:
 
 def upsert_contact(lead_data: dict) -> Optional[str]:
     """
-    Creates a new contact or updates an existing one (matched by phone).
+    Creates or updates a GHL contact matched by phone or email (whichever is available).
+    Requires at least one of phone or email — skips if neither is present.
     Returns the contactId or None on failure.
     """
     if not _is_configured():
         return None
 
     phone = lead_data.get("phone", "")
-    existing_id = find_contact_by_phone(phone)
+    email = lead_data.get("email", "")
+
+    if not phone and not email:
+        print("⚠️  GHL upsert skipped — no phone or email available to identify contact.")
+        return None
+
+    # Try phone first, fall back to email for deduplication
+    existing_id = _find_contact_by_query(phone) if phone else None
+    if not existing_id and email:
+        existing_id = _find_contact_by_query(email)
 
     # Split name into first/last best-effort
     full_name = lead_data.get("name", "").strip()
@@ -82,17 +96,23 @@ def upsert_contact(lead_data: dict) -> Optional[str]:
         tags.append(lead_data["category"])
     if lead_data.get("urgency") == "high":
         tags.append("Hot Lead")
+    if lead_data.get("sms_consent") is True:
+        tags.append("SMS-Consented")
+    else:
+        tags.append("SMS-Declined")
 
     payload = {
         "locationId": GHL_LOCATION_ID,
         "firstName": first_name,
         "lastName": last_name,
-        "phone": phone,
-        "email": lead_data.get("email") or "",
         "companyName": lead_data.get("company") or "",
         "source": lead_data.get("source", "PA Digital Growth AI Agent"),
         "tags": tags,
     }
+    if phone:
+        payload["phone"] = phone
+    if email:
+        payload["email"] = email
 
     try:
         if existing_id:
@@ -146,28 +166,18 @@ def add_note(contact_id: str, note_body: str):
 # SMS
 # ─────────────────────────────────────────────
 
-def send_sms(contact_id: str, message: str):
-    """Sends an SMS to a contact via GHL Conversations API."""
-    if not _is_configured() or not contact_id:
+def send_sms(to_phone: str, message: str):
+    """Sends an SMS via Twilio using the configured Twilio number."""
+    if not to_phone or not TWILIO_SID or not TWILIO_AUTH or not TWILIO_FROM:
+        print("⚠️  Twilio not fully configured — skipping SMS.")
         return
     try:
-        resp = requests.post(
-            f"{BASE_URL}/conversations/messages",
-            headers=HEADERS,
-            json={
-                "type": "SMS",
-                "contactId": contact_id,
-                "locationId": GHL_LOCATION_ID,
-                "message": message,
-            },
-            timeout=10,
-        )
-        if resp.status_code in [200, 201]:
-            print("✅ GHL SMS sent.")
-        else:
-            print(f"⚠️  GHL send_sms {resp.status_code}: {resp.text}")
+        from twilio.rest import Client
+        client = Client(TWILIO_SID, TWILIO_AUTH)
+        client.messages.create(body=message, from_=TWILIO_FROM, to=to_phone)
+        print(f"✅ SMS sent via Twilio to {to_phone}")
     except Exception as e:
-        print(f"❌ GHL send_sms error: {e}")
+        print(f"❌ Twilio send_sms error: {e}")
 
 
 # ─────────────────────────────────────────────
@@ -238,14 +248,18 @@ def log_call_lead(lead_data: dict):
     )
     add_note(contact_id, note)
 
-    # SMS confirmation
+    # SMS confirmation — only sent if caller gave explicit consent during the call
     name = lead_data.get("name", "there")
-    sms_msg = (
-        f"Hi {name.split()[0]}, thanks for calling PA Digital Growth! "
-        f"Someone from our team will be in touch with you as soon as possible. "
-        f"In the meantime, feel free to reply to this message with any questions."
-    )
-    send_sms(contact_id, sms_msg)
+    phone = lead_data.get("phone", "")
+    if lead_data.get("sms_consent") is True:
+        sms_msg = (
+            f"Hi {name.split()[0]}, thanks for calling PA Digital Growth! "
+            f"Someone from our team will be in touch with you as soon as possible. "
+            f"Feel free to reply here with any questions. Reply STOP to opt out."
+        )
+        send_sms(phone, sms_msg)
+    else:
+        print(f"ℹ️  SMS skipped — no consent recorded for {phone}")
 
     # Pipeline
     add_to_pipeline(
@@ -267,7 +281,7 @@ def log_missed_call(phone: str):
         return
 
     # Create minimal contact
-    existing_id = find_contact_by_phone(phone)
+    existing_id = _find_contact_by_query(phone)
     if existing_id:
         contact_id = existing_id
         print(f"ℹ️  Existing contact found for missed call: {contact_id}")
@@ -297,6 +311,7 @@ def log_missed_call(phone: str):
     client_name = os.getenv("CLIENT_NAME", "PA Digital Growth")
     sms_msg = (
         f"Hey! Sorry we missed your call — this is the team at {client_name}. "
-        f"What can we help you with today? Reply here and we'll get straight back to you."
+        f"What can we help you with today? Reply here and we'll get straight back to you. "
+        f"Reply STOP to opt out."
     )
-    send_sms(contact_id, sms_msg)
+    send_sms(phone, sms_msg)

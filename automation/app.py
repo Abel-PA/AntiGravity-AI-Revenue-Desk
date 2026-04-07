@@ -33,18 +33,29 @@ async def retell_webhook(request: Request, background_tasks: BackgroundTasks):
     payload = await request.json()
     event_type = payload.get("event")
     
-    print(f"DEBUG: Received Retell Webhook - Event: {event_type}")
-    
+    print(f"[Retell Webhook] Event: {event_type} | Keys: {list(payload.keys())}")
+
     if event_type == "call_started":
         call = payload.get("call", {})
         caller = call.get("from_number") or call.get("customer_number") or "Unknown number"
         send_slack_notification(f"📞 *Call Started* — AI agent is speaking to {caller} right now.")
 
     elif event_type == "call_analyzed":
-        print("DEBUG: Processing Analyze Event...")
+        print("[Retell] call_analyzed received — processing lead...")
         background_tasks.add_task(process_call_data, payload)
+
+    elif event_type == "call_ended":
+        # Fallback: Retell sometimes sends call_ended without a following call_analyzed
+        call = payload.get("call", {})
+        has_analysis = bool(call.get("analysis") or call.get("call_analysis"))
+        print(f"[Retell] call_ended received — has_analysis={has_analysis}")
+        if has_analysis:
+            background_tasks.add_task(process_call_data, payload)
+        else:
+            print("[Retell] call_ended has no analysis — waiting for call_analyzed event")
+
     else:
-        print(f"DEBUG: Skipping event type: {event_type}")
+        print(f"[Retell] Unhandled event type: {event_type}")
 
     return {"message": "Webhook received"}
 

@@ -36,12 +36,13 @@ Extract the following from this call transcript:
 7. Is Spam/Sales Call? (Boolean: True if job seeker, solicitor, robocall, or trying to sell something. False if genuine lead.)
 8. Qualification Notes & Summary — what do they need, how urgent, any key context
 9. Requested Action — one of: capture_lead | notify_sales_hot_lead | book_strategy_call | request_human_takeover | flag_spam_call
+10. SMS Consent — did the caller verbally agree to receive a follow-up text message? (Boolean: True if they said yes/agreed, False if they declined or it was never asked.)
 
 Transcript:
 \"\"\"{transcript}\"\"\"
 
 Return ONLY a JSON object with keys:
-"name", "email", "phone", "company", "category", "budget", "is_spam", "notes", "action_triggered"
+"name", "email", "phone", "company", "category", "budget", "is_spam", "notes", "action_triggered", "sms_consent"
 If a field is missing or not mentioned, use null.
 """
 
@@ -106,6 +107,7 @@ def process_call_data(call_payload):
         or ""
     )
     is_spam = analysis.get("is_spam", False)
+    sms_consent = analysis.get("sms_consent")
 
     # AI fallback extraction if Retell didn't capture everything
     fallback = extract_from_transcript(transcript)
@@ -118,10 +120,15 @@ def process_call_data(call_payload):
         category = category or fallback.get("category") or "General Enquiry"
         budget = budget or fallback.get("budget") or "Not disclosed"
         is_spam = fallback.get("is_spam", is_spam)
+        if sms_consent is None:
+            sms_consent = fallback.get("sms_consent")
         if action_triggered == "none":
             action_triggered = fallback.get("action_triggered") or "capture_lead"
         if not notes:
             notes = fallback.get("notes", "No notes available.")
+
+    # Treat None/missing consent as False — never send SMS without explicit agreement
+    sms_consent = sms_consent is True
 
     # Determine urgency level
     if action_triggered in ["notify_sales_hot_lead", "request_human_takeover"]:
@@ -146,6 +153,7 @@ def process_call_data(call_payload):
         "is_spam": is_spam,
         "action": action_triggered,
         "urgency": urgency_level,
+        "sms_consent": sms_consent,
         "notes": notes,
         "source": "PA Digital Growth AI Agent",
         "tags": ["AI-Captured", category] if category else ["AI-Captured"]
@@ -176,6 +184,7 @@ def process_call_data(call_payload):
         budget_display = budget if budget and budget != "Not disclosed" else "_Not disclosed_"
         company_display = company if company else "_Not provided_"
         email_display = email if email else "_Not provided_"
+        consent_display = "✅ Consented" if sms_consent else "❌ Declined / Not captured"
 
         slack_msg = (
             f"{header}\n"
@@ -187,6 +196,7 @@ def process_call_data(call_payload):
             f"🎯 *Interest:* {lead_data['category']}\n"
             f"⏱️ *Called:* {call_time_iso}  ({call_duration_seconds}s)\n"
             f"💰 *Budget:* {budget_display}\n"
+            f"📱 *SMS Consent:* {consent_display}\n"
             f"💬 *Notes:* {notes}\n"
             f"{action_line}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━"
