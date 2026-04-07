@@ -31,7 +31,7 @@ Extract the following from this call transcript:
 3. Phone Number (if mentioned verbally — not the caller ID)
 4. Company Name (if mentioned)
 5. Category — MUST be exactly one of:
-   Training | AI Solutions | SEO Work | Web Design | Social Media | General Enquiry | Spam/Sales
+   AI Agents & Automation | AI Consulting | AI Training | AI Services | SEO | Web Design | Social Media | General Enquiry | Job Application | Spam/Sales
 6. Budget — any budget figure or range mentioned (e.g. "around £2k a month", "£500"). Use "Not disclosed" if not mentioned.
 7. Is Spam/Sales Call? (Boolean: True if job seeker, solicitor, robocall, or trying to sell something. False if genuine lead.)
 8. Qualification Notes & Summary — what do they need, how urgent, any key context
@@ -116,7 +116,7 @@ def process_call_data(call_payload):
         email = email or fallback.get("email") or ""
         company = company or fallback.get("company") or ""
         if not customer_number:
-            customer_number = fallback.get("phone") or "Unknown"
+            customer_number = fallback.get("phone") or ""
         category = category or fallback.get("category") or "General Enquiry"
         budget = budget or fallback.get("budget") or "Not disclosed"
         is_spam = fallback.get("is_spam", is_spam)
