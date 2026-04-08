@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, BackgroundTasks
+from contextlib import asynccontextmanager
 import os
-import json
+import time
 from dotenv import load_dotenv
 
 # Import our custom modules
@@ -12,7 +13,55 @@ from twilio.rest import Client
 
 load_dotenv()
 
-app = FastAPI(title="AI Revenue Desk™ Engine")
+# ── Deduplication: track recently processed call_ids to prevent double-firing ──
+# Stores {call_id: timestamp}. Entries older than 5 minutes are discarded.
+_processed_calls: dict = {}
+_DEDUP_TTL = 300  # seconds
+
+def _already_processed(call_id: str) -> bool:
+    """Returns True if this call_id was already processed within the TTL window."""
+    if not call_id:
+        return False
+    now = time.time()
+    # Evict stale entries
+    stale = [k for k, t in _processed_calls.items() if now - t > _DEDUP_TTL]
+    for k in stale:
+        del _processed_calls[k]
+    if call_id in _processed_calls:
+        return True
+    _processed_calls[call_id] = now
+    return False
+
+
+# ── Startup: validate critical env vars and alert Slack if anything is missing ──
+REQUIRED_ENV_VARS = {
+    "GHL_API_KEY": "GoHighLevel API — leads won't reach CRM",
+    "GHL_LOCATION_ID": "GoHighLevel Location — leads won't reach CRM",
+    "SLACK_WEBHOOK_URL": "Slack alerts — team won't be notified of calls",
+    "TWILIO_ACCOUNT_SID": "Twilio — SMS and call routing will fail",
+    "TWILIO_AUTH_TOKEN": "Twilio — SMS and call routing will fail",
+    "TWILIO_PHONE_NUMBER": "Twilio — outbound SMS won't send",
+    "OPENAI_API_KEY": "OpenAI — transcript fallback extraction disabled",
+}
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    missing = [f"• `{k}` — {v}" for k, v in REQUIRED_ENV_VARS.items() if not os.getenv(k)]
+    if missing:
+        msg = (
+            "⚠️ *AI Revenue Desk — Missing Config at Startup*\n"
+            + "\n".join(missing)
+            + "\nFix these in Railway environment variables."
+        )
+        print(msg)
+        send_slack_notification(msg)
+    else:
+        print("✅ All required environment variables present.")
+        send_slack_notification("✅ *AI Revenue Desk is online* — all systems configured and ready.")
+    yield
+
+
+app = FastAPI(title="AI Revenue Desk™ Engine", lifespan=lifespan)
 
 # Twilio Client for SMS responses
 TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -23,6 +72,17 @@ twilio_client = Client(TWILIO_SID, TWILIO_AUTH_TOKEN)
 @app.get("/")
 async def root():
     return {"status": "online", "system": "AI Revenue Desk Engine v1.0"}
+
+
+@app.get("/health")
+async def health():
+    """Lightweight health check. Returns config status for each critical service."""
+    checks = {k: bool(os.getenv(k)) for k in REQUIRED_ENV_VARS}
+    all_ok = all(checks.values())
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "checks": checks,
+    }
 
 @app.post("/webhooks/voice-sync")
 async def retell_webhook(request: Request, background_tasks: BackgroundTasks):
@@ -35,6 +95,9 @@ async def retell_webhook(request: Request, background_tasks: BackgroundTasks):
     
     print(f"[Retell Webhook] Event: {event_type} | Keys: {list(payload.keys())}")
 
+    call_obj = payload.get("call") if isinstance(payload.get("call"), dict) else payload
+    call_id = call_obj.get("call_id") or payload.get("call_id")
+
     if event_type == "call_started":
         call = payload.get("call", {})
         caller = call.get("from_number") or call.get("customer_number") or "Unknown number"
@@ -42,7 +105,10 @@ async def retell_webhook(request: Request, background_tasks: BackgroundTasks):
 
     elif event_type == "call_analyzed":
         print("[Retell] call_analyzed received — processing lead...")
-        background_tasks.add_task(process_call_data, payload)
+        if _already_processed(call_id):
+            print(f"[Retell] Duplicate call_analyzed ignored for call_id={call_id}")
+        else:
+            background_tasks.add_task(process_call_data, payload)
 
     elif event_type == "call_ended":
         # Fallback: Retell sometimes sends call_ended without a following call_analyzed
@@ -50,7 +116,10 @@ async def retell_webhook(request: Request, background_tasks: BackgroundTasks):
         has_analysis = bool(call.get("analysis") or call.get("call_analysis"))
         print(f"[Retell] call_ended received — has_analysis={has_analysis}")
         if has_analysis:
-            background_tasks.add_task(process_call_data, payload)
+            if _already_processed(call_id):
+                print(f"[Retell] Duplicate call_ended ignored for call_id={call_id}")
+            else:
+                background_tasks.add_task(process_call_data, payload)
         else:
             print("[Retell] call_ended has no analysis — waiting for call_analyzed event")
 

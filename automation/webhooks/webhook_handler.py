@@ -66,6 +66,26 @@ def process_call_data(call_payload):
     Processes post-call data from Retell AI.
     Extracts enriched lead data and routes it to GoHighLevel (GHL) and Slack.
     """
+    try:
+        _process_call_data_inner(call_payload)
+    except Exception as e:
+        call_id = None
+        try:
+            call_obj = call_payload.get("call") if isinstance(call_payload.get("call"), dict) else call_payload
+            call_id = call_obj.get("call_id") or call_payload.get("call_id")
+        except Exception:
+            pass
+        print(f"❌ Fatal error in process_call_data (call_id={call_id}): {e}")
+        from automation.utils import send_slack_notification
+        send_slack_notification(
+            f"🔴 *Webhook Processing Failed*\n"
+            f"Call ID: `{call_id or 'unknown'}`\n"
+            f"Error: `{type(e).__name__}: {e}`\n"
+            f"Action required: Check Railway logs and manually review this call in Retell."
+        )
+
+
+def _process_call_data_inner(call_payload):
     call_obj = call_payload.get("call") if isinstance(call_payload.get("call"), dict) else call_payload
     call_id = call_obj.get("call_id") or call_payload.get("call_id")
     transcript = call_obj.get("transcript") or call_payload.get("transcript")

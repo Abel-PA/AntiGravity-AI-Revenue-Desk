@@ -248,18 +248,21 @@ def log_call_lead(lead_data: dict):
     )
     add_note(contact_id, note)
 
-    # SMS confirmation — only sent if caller gave explicit consent during the call
+    # SMS confirmation — only sent if caller gave explicit consent and a phone number is available
     name = lead_data.get("name", "there")
     phone = lead_data.get("phone", "")
     if lead_data.get("sms_consent") is True:
-        sms_msg = (
-            f"Hi {name.split()[0]}, thanks for calling PA Digital Growth! "
-            f"Someone from our team will be in touch with you as soon as possible. "
-            f"Feel free to reply here with any questions. Reply STOP to opt out."
-        )
-        send_sms(phone, sms_msg)
+        if phone:
+            sms_msg = (
+                f"Hi {name.split()[0]}, thanks for calling PA Digital Growth! "
+                f"Someone from our team will be in touch with you as soon as possible. "
+                f"Feel free to reply here with any questions. Reply STOP to opt out."
+            )
+            send_sms(phone, sms_msg)
+        else:
+            print("ℹ️  SMS skipped — consent given but no phone number available.")
     else:
-        print(f"ℹ️  SMS skipped — no consent recorded for {phone}")
+        print(f"ℹ️  SMS skipped — no consent recorded for {phone or 'unknown'}")
 
     # Pipeline
     add_to_pipeline(
